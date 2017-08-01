@@ -1,173 +1,146 @@
 /* global describe, it */
-var absoluteUrl = require('ldapp-absolute-url').init
-var assert = require('assert')
-var express = require('express')
-var formats = require('rdf-formats-common')()
-var request = require('supertest-as-promised')
-var serve = require('..')
 
-describe('serve-static', function () {
-  describe('.findFiles', function () {
-    it('should find file with complete path', function (done) {
-      serve.findFiles('test/support/a.ttl').then(function (files) {
+const absoluteUrl = require('absolute-url')
+const assert = require('assert')
+const express = require('express')
+const formats = require('rdf-formats-common')()
+const rdf = require('rdf-ext')
+const request = require('supertest')
+const serve = require('..')
+
+describe('rdf-serve-static', () => {
+  describe('.findFiles', () => {
+    it('should find file with complete path', () => {
+      return serve.findFiles('test/support/a.ttl').then((files) => {
         assert.deepEqual(files, ['test/support/a.ttl'])
-
-        done()
-      }).catch(done)
+      })
     })
 
-    it('should find without file extension', function (done) {
-      serve.findFiles('test/support/a').then(function (files) {
+    it('should find without file extension', () => {
+      return serve.findFiles('test/support/a').then((files) => {
         assert.deepEqual(files, ['test/support/a.ttl'])
-
-        done()
-      }).catch(done)
+      })
     })
 
-    it('should return an empty error if no file was found', function (done) {
-      serve.findFiles('test/support/z').then(function (files) {
+    it('should return an empty error if no file was found', () => {
+      return serve.findFiles('test/support/z').then((files) => {
         assert.deepEqual(files, [])
-
-        done()
-      }).catch(done)
+      })
     })
 
-    it('should return an empty error if file is a folder', function (done) {
-      serve.findFiles('test/support/y').then(function (files) {
+    it('should return an empty error if file is a folder', () => {
+      serve.findFiles('test/support/y').then((files) => {
         assert.deepEqual(files, [])
-
-        done()
-      }).catch(done)
+      })
     })
   })
 
-  describe('.findGraph', function () {
-    it('should return a graph', function (done) {
-      serve.findGraph('test/support/a', formats).then(function (graph) {
-        assert(graph)
-        assert.equal(graph.length, 1)
-        assert.equal(graph.toArray().shift().subject.toString(), 'http://example.org/subject/a')
+  describe('.findStream', () => {
+    it('should return a stream', () => {
+      return serve.findStream('test/support/a', formats).then((stream) => {
+        assert(stream)
+        assert(stream.readable)
 
-        done()
-      }).catch(done)
+        return rdf.dataset().import(stream).then((dataset) => {
+          assert.equal(dataset.toArray().shift().subject.value, 'http://example.org/subject/a')
+        })
+      })
     })
 
-    it('should return null if no file was found', function (done) {
-      serve.findGraph('test/support/z', formats).then(function (graph) {
-        assert(!graph)
-
-        done()
-      }).catch(done)
+    it('should return null if no file was found', () => {
+      return serve.findStream('test/support/z', formats).then((stream) => {
+        assert(!stream)
+      })
     })
 
-    it('should return null if no parse was found', function (done) {
-      serve.findGraph('test/support/b', formats).then(function (graph) {
-        assert(!graph)
-
-        done()
-      }).catch(done)
+    it('should return null if no parser was found', () => {
+      return serve.findStream('test/support/b', formats).then((stream) => {
+        assert(!stream)
+      })
     })
   })
 
-  describe('middleware', function () {
-    it('should return the requested file in turtle format', function (done) {
-      var app = express()
+  describe('middleware', () => {
+    it('should return the requested file in turtle format', () => {
+      const app = express()
 
       app.use(serve('test/support', formats))
 
-      request(app)
+      return request(app)
         .get('/a')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 200)
           assert(res.text.indexOf('<http://example.org/subject/a>') >= 0)
-
-          done()
         })
-        .catch(done)
     })
 
-    it('should return 404 if no file was found', function (done) {
-      var app = express()
+    it('should return 404 if no file was found', () => {
+      const app = express()
 
       app.use(serve('test/support', formats))
 
-      request(app)
+      return request(app)
         .get('/z')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 404)
-
-          done()
         })
-        .catch(done)
     })
 
-    it('should return 404 if no parser was found', function (done) {
-      var app = express()
+    it('should return 404 if no parser was found', () => {
+      const app = express()
 
       app.use(serve('test/support', formats))
 
-      request(app)
+      return request(app)
         .get('/b')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 404)
-
-          done()
         })
-        .catch(done)
     })
 
-    it('should use . as base path if null was given', function (done) {
-      var app = express()
+    it('should use . as base path if null was given', () => {
+      const app = express()
 
       app.use(serve(null, formats))
 
-      request(app)
+      return request(app)
         .get('/test/support/a')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 200)
-
-          done()
         })
-        .catch(done)
     })
 
-    it('should use the requested url as parser base', function (done) {
-      var app = express()
+    it('should use the requested url as parser base', () => {
+      const app = express()
 
       app.use(serve('test/support', formats))
 
-      request(app)
+      return request(app)
         .get('/c')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 200)
           assert(res.text.match(/http:\/\/127.0.0.1:[0-9]*\/c/))
-
-          done()
         })
-        .catch(done)
     })
 
-    it('should use an existing absolute url middleware', function (done) {
-      var app = express()
+    it('should use an existing absolute url middleware', () => {
+      const app = express()
 
       app.use(absoluteUrl({basePath: 'test'}))
       app.use(serve('test/support', formats))
 
-      request(app)
+      return request(app)
         .get('/c')
-        .set('Accept', 'text/turtle')
-        .then(function (res) {
+        .set('accept', 'application/n-triples')
+        .then((res) => {
           assert.equal(res.statusCode, 200)
           assert(res.text.match(/http:\/\/127.0.0.1:[0-9]*\/test\/c/))
-
-          done()
         })
-        .catch(done)
     })
   })
 })

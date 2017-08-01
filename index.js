@@ -1,21 +1,23 @@
-var Promise = require('bluebird')
-var absoluteUrl = require('ldapp-absolute-url').init()
-var bodyParser = require('rdf-body-parser')
-var glob = Promise.promisify(require('glob'))
-var mime = require('mime')
-var path = require('path')
-var readFile = Promise.promisify(require('fs').readFile)
-var stat = Promise.promisify(require('fs').stat)
+const absoluteUrl = require('absolute-url')
+const bodyParser = require('rdf-body-parser')
+const fs = require('fs')
+const globRaw = require('glob')
+const mime = require('mime')
+const path = require('path')
+const Promise = require('bluebird')
+
+const glob = Promise.promisify(globRaw)
+const stat = Promise.promisify(fs.stat)
 
 function fileExists (filename) {
-  return new Promise(function (resolve) {
-    stat(filename).then(function (stats) {
+  return new Promise((resolve) => {
+    stat(filename).then((stats) => {
       if (stats.isFile()) {
         resolve(true)
       } else {
         resolve(false)
       }
-    }).catch(function () {
+    }).catch(() => {
       resolve(false)
     })
   })
@@ -26,7 +28,7 @@ function globFiles (filename) {
 }
 
 function findFiles (filename) {
-  return fileExists(filename).then(function (exists) {
+  return fileExists(filename).then((exists) => {
     if (exists) {
       return [filename]
     } else {
@@ -35,61 +37,54 @@ function findFiles (filename) {
   })
 }
 
-function findGraph (filename, formats, options) {
+function findStream (filename, formats, options) {
   options = options || {}
 
-  return findFiles(filename).then(function (filenames) {
-    return Promise.all(filenames.map(function (filename) {
-      var mediaType = mime.lookup(filename)
+  return findFiles(filename).then((filenames) => {
+    return Promise.all(filenames.map((filename) => {
+      const mediaType = mime.lookup(filename)
+      const parser = formats.parsers.find(mediaType)
 
-      if (mediaType in formats.parsers) {
-        return readFile(filename).then(function (content) {
-          return formats.parsers.parse(mediaType, content.toString(), null, options.base ? options.base : ('file://' + filename))
+      if (parser) {
+        const baseIRI = options.baseIRI ? options.baseIRI : ('file://' + filename)
+
+        return parser.import(fs.createReadStream(filename), {
+          baseIRI: baseIRI
         })
+      } else {
+        return null
       }
-    }).filter(function (parse) {
-      return parse
-    })).then(function (graphs) {
-      return graphs.filter(function (graph) {
-        return graph
-      }).shift()
+    }).filter((stream) => {
+      return stream
+    })).then((streams) => {
+      return streams.shift()
     })
-  })
-}
-
-function injectAbsoluteUrl (req, res) {
-  if (typeof req.absoluteUrl === 'function') {
-    return Promise.resolve()
-  }
-
-  return new Promise(function (resolve) {
-    absoluteUrl(req, res, resolve)
   })
 }
 
 function init (root, formats) {
   root = root || '.'
 
-  var bodyParserInstance = bodyParser(formats)
+  const bodyParserInstance = bodyParser(formats)
 
-  return function (req, res, next) {
-    injectAbsoluteUrl(req, res).then(function () {
-      return findGraph(path.join(root, req.path), formats, {base: req.absoluteUrl()})
-    }).then(function (graph) {
-      if (graph) {
-        bodyParserInstance(req, res, function () {
-          res.sendGraph(graph)
+  return (req, res, next) => {
+    absoluteUrl.attach(req)
+
+    findStream(path.join(root, req.path), formats, {baseIRI: req.absoluteUrl()}).then((stream) => {
+      if (stream) {
+        bodyParserInstance(req, res, () => {
+          res.graph(stream).catch(next)
         })
       } else {
         next()
       }
-    }).catch(function (error) {
-      next(error)
+    }).catch((err) => {
+      next(err)
     })
   }
 }
 
 init.findFiles = findFiles
-init.findGraph = findGraph
+init.findStream = findStream
 
 module.exports = init
